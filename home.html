@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="cleartype" content="on">
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+<meta name="robots" content="index, follow" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+
+<title>
+	     Golden Valley Health Centers</title>
+	<!--[if lt IE 9]>
+<script src="http://www.gvhc.org/wp-content/themes/gvhc/html5shiv.js"></script>
+<script src="http://www.gvhc.org/wp-content/themes/gvhc/respond.min.js"></script>
+<![endif]-->	<!--[if gte IE 9]>
+	  <style type="text/css">
+	    .gradient {
+	       filter: none;
+	    }
+	  </style>
+	  <![endif]-->
+	<!--[if lt IE 7 ]><script src="//ajax.googleapis.com/ajax/libs/chrome-frame/1.0.2/CFInstall.min.js"></script><script>window.attachEvent("onload",function(){CFInstall.check({mode:"overlay"})})</script><![endif]-->
+<link rel="profile" href="http://gmpg.org/xfn/11">
+	<link rel="pingback" href="http://www.gvhc.org/xmlrpc.php">
+
+	<link rel="stylesheet" href="http://www.gvhc.org/wp-content/themes/gvhc/css/bootstrap.min.css">
+	<link rel="stylesheet" href="http://www.gvhc.org/wp-content/themes/gvhc/style.css">
+	<script src="//ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
+	<script src="http://maps.googleapis.com/maps/api/js" type="text/javascript"></script>
+	<script type="text/javascript">
+		//<![CDATA[
+		var map;
+		var markers = [];
+		var infoWindow;
+		var locationSelect;
+
+		function load() {
+			map = new google.maps.Map(document.getElementById("map"), {
+				center: new google.maps.LatLng(40, -100),
+				zoom: 4,
+				mapTypeId: 'roadmap',
+				mapTypeControlOptions: {style: google.maps.MapTypeControlStyle.DROPDOWN_MENU}
+			});
+			infoWindow = new google.maps.InfoWindow();
+
+			locationSelect = document.getElementById("locationSelect");
+			locationSelect.onchange = function() {
+				var markerNum = locationSelect.options[locationSelect.selectedIndex].value;
+				if (markerNum != "none"){
+					google.maps.event.trigger(markers[markerNum], 'click');
+				}
+			};
+		}
+
+		function searchLocations() {
+			var address = document.getElementById("addressInput").value;
+			var geocoder = new google.maps.Geocoder();
+			geocoder.geocode({address: address}, function(results, status) {
+				if (status == google.maps.GeocoderStatus.OK) {
+					searchLocationsNear(results[0].geometry.location);
+				} else {
+					alert(address + ' not found');
+				}
+			});
+		}
+
+		function clearLocations() {
+			infoWindow.close();
+			for (var i = 0; i < markers.length; i++) {
+				markers[i].setMap(null);
+			}
+			markers.length = 0;
+
+			locationSelect.innerHTML = "";
+			var option = document.createElement("option");
+			option.value = "none";
+			option.innerHTML = "See all results:";
+			locationSelect.appendChild(option);
+		}
+
+		function searchLocationsNear(center) {
+			clearLocations();
+
+			var radius = document.getElementById('radiusSelect').value;
+			var searchUrl = 'http://www.gvhc.org/wp-content/themes/gvhc/geolocation-xml.php?lat=' + center.lat() + '&lng=' + center.lng() + '&radius=' + radius;
+			downloadUrl(searchUrl, function(data) {
+				var xml = parseXml(data);
+				var markerNodes = xml.documentElement.getElementsByTagName("marker");
+				var bounds = new google.maps.LatLngBounds();
+				var post_ids = [];
+				for (var i = 0; i < markerNodes.length; i++) {
+					var post_id = markerNodes[i].getAttribute("post_id");
+					var name = markerNodes[i].getAttribute("name");
+					var address = markerNodes[i].getAttribute("address");
+					var distance = parseFloat(markerNodes[i].getAttribute("distance"));
+					var latlng = new google.maps.LatLng(
+						parseFloat(markerNodes[i].getAttribute("lat")),
+						parseFloat(markerNodes[i].getAttribute("lng")));
+					post_ids.push(post_id, distance);
+					createOption(post_id, name, distance, i);
+					createMarker(latlng, name, address);
+					bounds.extend(latlng);
+				}
+				createPHPXMit(post_ids);
+				map.fitBounds(bounds);
+				locationSelect.style.visibility = "visible";
+				locationSelect.onchange = function() {
+					var markerNum = locationSelect.options[locationSelect.selectedIndex].value;
+					google.maps.event.trigger(markers[markerNum], 'click');
+				};
+			});
+		}
+
+		function createMarker(latlng, name, address) {
+			var html = "<b>" + name + "</b> <br/>" + address;
+			var marker = new google.maps.Marker({
+				map: map,
+				position: latlng
+			});
+			google.maps.event.addListener(marker, 'click', function() {
+				infoWindow.setContent(html);
+				infoWindow.open(map, marker);
+			});
+			markers.push(marker);
+		}
+
+		function createOption(post_id, name, distance, num) {
+			var option = document.createElement("option");
+			option.value = num;
+			option.innerHTML = post_id + ' ' + name + "(" + distance.toFixed(1) + ")";
+			locationSelect.appendChild(option);
+		}
+		
+		function createPHPXMit(post_ids){
+			//alert("Creating PHP Xmit " + post_ids);
+			var encoded_ids = JSON.stringify(post_ids);
+			//alert(encoded_ids);
+			var url = 'http://www.gvhc.org/locations';
+			var form = $('<form action="' + url + '" method="post">' +
+							"<input type='hidden' name='encoded_ids' value='" + encoded_ids + "' />" +
+						 '</form>');
+			$('body').append(form);
+			$(form).submit();
+		}
+
+		function downloadUrl(url, callback) {
+			var request = window.ActiveXObject ?
+				new ActiveXObject('Microsoft.XMLHTTP') :
+				new XMLHttpRequest;
+
+			request.onreadystatechange = function() {
+				if (request.readyState == 4) {
+					request.onreadystatechange = doNothing;
+					callback(request.responseText, request.status);
+				}
+			};
+
+			request.open('GET', url, true);
+			request.send(null);
+		}
+
+		function parseXml(str) {
+			if (window.ActiveXObject) {
+				var doc = new ActiveXObject('Microsoft.XMLDOM');
+				doc.loadXML(str);
+				return doc;
+			} else if (window.DOMParser) {
+				return (new DOMParser).parseFromString(str, 'text/xml');
+			}
+		}
+
+		function doNothing() {}
+
+		//]]>
+	</script>
+	<link rel="alternate" type="application/rss+xml" title="Golden Valley Health Centers &raquo; Home Comments Feed" href="http://www.gvhc.org/home/feed/" />
+<style type="text/css">
+</style><link rel='stylesheet' id='otw_sbm.css-css'  href='http://www.gvhc.org/wp-content/plugins/sidebar-manager-light/css/otw_sbm.css?ver=4.1.9' type='text/css' media='all' />
+<link rel='stylesheet' id='open-sans-css'  href='//fonts.googleapis.com/css?family=Open+Sans%3A300italic%2C400italic%2C600italic%2C300%2C400%2C600&#038;subset=latin%2Clatin-ext&#038;ver=4.1.9' type='text/css' media='all' />
+<link rel='stylesheet' id='dashicons-css'  href='http://www.gvhc.org/wp-includes/css/dashicons.min.css?ver=4.1.9' type='text/css' media='all' />
+<link rel='stylesheet' id='admin-bar-css'  href='http://www.gvhc.org/wp-includes/css/admin-bar.min.css?ver=4.1.9' type='text/css' media='all' />
+<link rel='stylesheet' id='contact-form-7-css'  href='http://www.gvhc.org/wp-content/plugins/contact-form-7/includes/css/styles.css?ver=4.0.3' type='text/css' media='all' />
+<link rel='stylesheet' id='ms-main-css'  href='http://www.gvhc.org/wp-content/plugins/masterslider/public/assets/css/masterslider.main.css?ver=2.9.2' type='text/css' media='all' />
+<link rel='stylesheet' id='ms-custom-css'  href='http://www.gvhc.org/wp-content/uploads/masterslider/custom.css?ver=13.2' type='text/css' media='all' />
+<link rel='stylesheet' id='menufication-css-css'  href='http://www.gvhc.org/wp-content/plugins/menufication/css/menufication.min.css?ver=4.1.9' type='text/css' media='all' />
+<script type='text/javascript' src='http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js'></script>
+<script type='text/javascript'>
+/* <![CDATA[ */
+var wp_menufication = {"element":"#wp_menufication","enable_menufication":"on","headerLogo":"","headerLogoLink":"","menuLogo":"","menuText":"","triggerWidth":"767","addHomeLink":null,"addHomeText":"Home","addSearchField":"on","hideDefaultMenu":"on","onlyMobile":null,"direction":"left","theme":"dark","childMenuSupport":"on","childMenuSelector":"sub-menu, children","activeClassSelector":"current-menu-item, current-page-item, active","enableSwipe":"on","doCapitalization":null,"supportAndroidAbove":"3.5","disableSlideScaling":null,"toggleElement":"","customMenuElement":"","customFixedHeader":"","addToFixedHolder":"","page_menu_support":null,"wrapTagsInList":"","allowedTags":"DIV, NAV, UL, OL, LI, A, P, H1, H2, H3, H4, SPAN, FORM, INPUT, SEARCH","customCSS":"","is_page_menu":"","enableMultiple":"","is_user_logged_in":"1"};
+/* ]]> */
+</script>
+<script type='text/javascript' src='http://www.gvhc.org/wp-content/plugins/menufication/js/jquery.menufication.min.js?ver=4.1.9'></script>
+<script type='text/javascript' src='http://www.gvhc.org/wp-content/plugins/menufication/js/menufication-setup.js?ver=4.1.9'></script>
+<link rel='canonical' href='http://www.gvhc.org/' />
+<link rel='shortlink' href='http://www.gvhc.org/' />
+<script>var ms_grabbing_curosr = 'http://www.gvhc.org/wp-content/plugins/masterslider/public/assets/css/common/grabbing.cur', ms_grab_curosr = 'http://www.gvhc.org/wp-content/plugins/masterslider/public/assets/css/common/grab.cur';</script>
+<link rel="alternate" hreflang="es-MX" href="http://www.gvhc.org/sp/inicio/" />	<style type="text/css">.recentcomments a{display:inline !important;padding:0 !important;margin:0 !important;}</style>
+<style type="text/css" media="print">#wpadminbar { display:none; }</style>
+<style type="text/css" media="screen">
+	html { margin-top: 32px !important; }
+	* html body { margin-top: 32px !important; }
+	@media screen and ( max-width: 782px ) {
+		html { margin-top: 46px !important; }
+		* html body { margin-top: 46px !important; }
+	}
+</style>
+	
+</head>
+
+<body class="home page page-id-5 page-template-default logged-in admin-bar no-customize-support _masterslider _msp_version_2.9.2" onload="load()">
+<div class="wrapper">
+	<div class="content container">
+<div class="header-wrapper">
+		<div class="row">
+			<div class="hidden-xs col-sm-6 col-md-6">
+			<h1 class="logo">
+				<a href="http://www.gvhc.org">
+					<img src="http://www.gvhc.org/wp-content/themes/gvhc/images/gvhc-brand-notag.png" alt="Golden Valley Health Centers">
+				</a>
+			</h1>
+			</div>
+			<div class="col-xs-12 col-sm-6 col-md-6 right">
+				<div class="row">
+					<div class="hidden-xs col-md-7">
+						<div class="alt-nav">
+						<a href="/employee-login" title="Employee Login">Employee Login</a>
+						</div>
+					</div>
+					<div class="col-xs-12 col-md-5">
+						<div class="alt-nav">
+						<div class="mlp_language_box"><ul><li><a class="current-language-item" href="">English</a></li><li><a rel="alternate" hreflang="es-MX"  href="http://www.gvhc.org/sp/inicio/">Español de México</a></li></ul></div>						</div>
+					</div><!-- End Col 4 -->
+					<div class="col-md-12">
+						<div class="gvhc-search right">
+						<form role="search" method="get" id="searchform" action="http://www.gvhc.org/">
+    <div>
+    	<label for="s" class="hidden">Search</label>
+        <input type="text" value="" name="s" id="s" placeholder="Search" />
+        <button class="btn btn-gvhc" id="searchsubmit" type="submit">
+			<span class="glyphicon glyphicon-search"></span><span class="hidden">Search</span>
+		</button>
+    </div>
+</form>					</div><!-- End Col 12 -->
+				</div>
+			</div>
+			<div class="visible-xs col-xs-12">
+			<h1 class="responsive-logo">
+				<a href="http://www.gvhc.org">
+					<img src="http://www.gvhc.org/wp-content/themes/gvhc/images/gvhc-brand-notag.png" alt="Golden Valley Health Centers">
+				</a>
+			</h1>
+			</div>
+
+			<div class="clearfix"></div>
+			</div>
+		</div>
+		<div class="row">
+		<div class="col-md-12">
+				<navigation role="navigation" class="">
+				<div class="menu-header-menu-container"><ul id="menu-header-menu" class="menu"><div id='wp_menufication'><li class="menufication-search-holder"><form role="search" method="get" id="searchform" action="http://www.gvhc.org/">
+    <div>
+    	<label for="s" class="hidden">Search</label>
+        <input type="text" value="" name="s" id="s" placeholder="Search" />
+        <button class="btn btn-gvhc" id="searchsubmit" type="submit">
+			<span class="glyphicon glyphicon-search"></span><span class="hidden">Search</span>
+		</button>
+    </div>
+</form></li><li id="menu-item-929" class="menu-item menu-item-type-post_type menu-item-object-page current-menu-item page_item page-item-5 current_page_item menu-item-929"><a href="http://www.gvhc.org/">Home</a></li>
+<li id="menu-item-26" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-has-children menu-item-26"><a href="http://www.gvhc.org/about/">About</a>
+<ul class="sub-menu">
+	<li id="menu-item-854" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-854"><a href="http://www.gvhc.org/about/mission-vision-values/">Mission Vision &#038; Values</a></li>
+	<li id="menu-item-853" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-853"><a href="http://www.gvhc.org/about/history-of-gvhc/">History of GVHC</a></li>
+	<li id="menu-item-860" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-has-children menu-item-860"><a href="http://www.gvhc.org/meet-our-staff/">Meet Our Staff</a>
+	<ul class="sub-menu">
+		<li id="menu-item-922" class="menu-item menu-item-type-custom menu-item-object-custom menu-item-922"><a href="/meet-our-staff?filter=board">Board of Directors</a></li>
+		<li id="menu-item-932" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-932"><a href="http://www.gvhc.org/leadership/">Leadership</a></li>
+		<li id="menu-item-919" class="menu-item menu-item-type-custom menu-item-object-custom menu-item-919"><a href="/meet-our-staff?filter=medical">Medical Providers</a></li>
+		<li id="menu-item-920" class="menu-item menu-item-type-custom menu-item-object-custom menu-item-920"><a href="/meet-our-staff?filter=dental">Dental Providers</a></li>
+		<li id="menu-item-921" class="menu-item menu-item-type-custom menu-item-object-custom menu-item-921"><a href="/meet-our-staff?filter=behavioral">Behavioral Health Clinicians</a></li>
+	</ul>
+</li>
+	<li id="menu-item-754" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-754"><a href="http://www.gvhc.org/news/">News</a></li>
+</ul>
+</li>
+<li id="menu-item-25" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-has-children menu-item-25"><a href="http://www.gvhc.org/services/">Services</a>
+<ul class="sub-menu">
+	<li id="menu-item-1452" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1452"><a href="http://www.gvhc.org/services/family-medicine/">Family Medicine</a></li>
+	<li id="menu-item-1453" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1453"><a href="http://www.gvhc.org/services/pediatrics/">Pediatrics</a></li>
+	<li id="menu-item-1071" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1071"><a href="http://www.gvhc.org/services/teen-services/">Teen Services</a></li>
+	<li id="menu-item-1450" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1450"><a href="http://www.gvhc.org/services/womens-health/">Women&#8217;s Health</a></li>
+	<li id="menu-item-1451" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1451"><a href="http://www.gvhc.org/services/senior-care/">Senior Care</a></li>
+	<li id="menu-item-1436" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1436"><a href="http://www.gvhc.org/internal-medicine/">Internal Medicine</a></li>
+	<li id="menu-item-1068" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1068"><a href="http://www.gvhc.org/services/dental-care/">Dental Care</a></li>
+	<li id="menu-item-1454" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1454"><a href="http://www.gvhc.org/services/podiatry/">Podiatry</a></li>
+	<li id="menu-item-1070" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1070"><a href="http://www.gvhc.org/services/optometry/">Optometry</a></li>
+	<li id="menu-item-1067" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1067"><a href="http://www.gvhc.org/services/health-education/">Health Education</a></li>
+	<li id="menu-item-1069" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1069"><a href="http://www.gvhc.org/services/behavioral-health/">Behavioral Health</a></li>
+	<li id="menu-item-2072" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-2072"><a href="http://www.gvhc.org/services/chiropractic-services/">Chiropractic Services</a></li>
+</ul>
+</li>
+<li id="menu-item-60" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-60"><a href="http://www.gvhc.org/locations/">Locations</a></li>
+<li id="menu-item-465" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-has-children menu-item-465"><a href="http://www.gvhc.org/careers/">Careers</a>
+<ul class="sub-menu">
+	<li id="menu-item-1177" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1177"><a href="http://www.gvhc.org/available-staff-positions/">Available Staff Positions</a></li>
+	<li id="menu-item-1178" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1178"><a href="http://www.gvhc.org/employee-benefits/">Employee Benefits</a></li>
+	<li id="menu-item-1179" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-1179"><a href="http://www.gvhc.org/provider-opportunities/">Provider Opportunities</a></li>
+</ul>
+</li>
+<li id="menu-item-23" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-23"><a href="http://www.gvhc.org/giving-opportunities/">Giving Opportunities</a></li>
+<li id="menu-item-24" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-24"><a href="http://www.gvhc.org/contact-us/">Contact Us</a></li>
+<li id="menu-item-989" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-has-children menu-item-989"><a href="http://www.gvhc.org/patient-portal/">Patient Portal</a>
+<ul class="sub-menu">
+	<li id="menu-item-990" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-990"><a href="http://www.gvhc.org/patient-portal/patient-portal-faqs/">Patient Portal FAQs</a></li>
+	<li id="menu-item-991" class="menu-item menu-item-type-custom menu-item-object-custom menu-item-991"><a href="https://www.nextmd.com/ud2/Login/Login.aspx">Login</a></li>
+</ul>
+</li>
+</div></ul></div>				</navigation>
+		</div>
+<div class="clearfix"></div>
+		</div>
+</div>
+
+
+<div class="page-content-wrapper">
+
+		<div class="row">
+			<div class="slider-wrapper">
+				<div class="patient-portal-hr">
+					<div class="col-md-10">
+					</div>
+					<div class="col-md-2 center patient-portal">
+						<a href="#" class="">Patient Portal</a>
+					</div>
+				</div>
+
+				
+		<!-- MasterSlider -->
+		<div id="P_MS569eafec8bcd2" class="master-slider-parent ms-parent-id-1" style="max-width:100%;"  >
+				
+			
+			<!-- MasterSlider Main -->
+			<div id="MS569eafec8bcd2" class="master-slider ms-skin-light-3" >
+				 				 
+				<div  class="ms-slide" data-delay="15" data-fill-mode="fill"  >
+					<img src="http://www.gvhc.org/wp-content/plugins/masterslider/public/assets/js/blank.gif" alt="" title="" data-src="http://www.gvhc.org/wp-content/uploads/2014/12/good-checkup-1170x450.jpg" />
+
+					<div  class="ms-layer" style=""    data-delay="700" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="83" data-offset-y="111" data-origin="tl" >
+<span style="text-transform: uppercase; color: white; font-size: 24px; font-weight: normal; line-height: 33px; background: #6E922C; display: block; padding: 1px 10px;">Your first choice</span></div>
+
+					<div  class="ms-layer" style=""  data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="1162" data-delay="1287" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="118" data-offset-y="148" data-origin="tl" >
+<span style="text-transform: uppercase; color: white; font-size: 36px; font-weight: bold; text-shadow: 1px 1px #292929; line-height: 44px;">for good health</span></div>
+
+					<div  class="ms-layer" style=""  data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="912" data-delay="3150" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="120" data-offset-y="190" data-origin="tl" >
+<span style="color: white; font-size: 18px; text-shadow: 1px 1px #292929;">We’re your primary healthcare provider.</span></div>
+
+					<a  href="/services" target="_self" class="ms-layer  msp-cn-1-74 ms-btn ms-btn-box ms-btn-n msp-preset-btn-159" data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="937" data-delay="3987" data-ease="easeOutQuint"      data-fixed="true"  data-type="button"        data-offset-x="187" data-offset-y="230" data-origin="tl"  >
+LEARN MORE</a>
+
+
+				</div>
+				<div  class="ms-slide" data-delay="15" data-fill-mode="fill"  >
+					<img src="http://www.gvhc.org/wp-content/plugins/masterslider/public/assets/js/blank.gif" alt="" title="" data-src="http://www.gvhc.org/wp-content/uploads/2014/12/staff-1170x450.jpg" />
+
+					<div  class="ms-layer" style=""    data-delay="700" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="83" data-offset-y="111" data-origin="tl" >
+<span style="text-transform: uppercase; color: white; font-size: 24px; font-weight: normal; line-height: 33px; background: #6E922C; display: block; padding: 1px 10px;">Your first choice</span></div>
+
+					<div  class="ms-layer" style=""  data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="1162" data-delay="1287" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="118" data-offset-y="148" data-origin="tl" >
+<span style="text-transform: uppercase; color: white; font-size: 36px; font-weight: bold; text-shadow: 1px 1px #292929; line-height: 44px;">for a rewarding career</span></div>
+
+					<div  class="ms-layer" style=""  data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="912" data-delay="3150" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="120" data-offset-y="190" data-origin="tl" >
+<span style="color: white; font-size: 18px; text-shadow: 1px 1px #292929;">Join our team of compassionate, enthusiastic professionals.</span></div>
+
+					<a  href="/careers" target="_self" class="ms-layer  msp-cn-1-94 ms-btn ms-btn-box ms-btn-n msp-preset-btn-159" data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="937" data-delay="3987" data-ease="easeOutQuint"      data-fixed="true"  data-type="button" data-resize="false"       data-offset-x="187" data-offset-y="230" data-origin="tl"  >
+LEARN MORE</a>
+
+
+				</div>
+				<div  class="ms-slide" data-delay="15" data-fill-mode="fill"  >
+					<img src="http://www.gvhc.org/wp-content/plugins/masterslider/public/assets/js/blank.gif" alt="" title="" data-src="http://www.gvhc.org/wp-content/uploads/2014/06/good-checkup-1170x450.jpg" />
+
+					<div  class="ms-layer" style=""    data-delay="700" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="83" data-offset-y="111" data-origin="tl" >
+<span style="text-transform: uppercase; color: white; font-size: 24px; font-weight: normal; line-height: 33px; background: #6E922C; display: block; padding: 1px 10px;">Your first choice</span></div>
+
+					<div  class="ms-layer" style=""  data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="1162" data-delay="1287" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="118" data-offset-y="148" data-origin="tl" >
+<span style="text-transform: uppercase; color: white; font-size: 36px; font-weight: bold; text-shadow: 1px 1px #292929; line-height: 44px;">for healthy teeth</span></div>
+
+					<div  class="ms-layer" style=""  data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="912" data-delay="3150" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="120" data-offset-y="190" data-origin="tl" >
+<span style="color: white; font-size: 18px; text-shadow: 1px 1px #292929;">Healthy teeth and gums make life more enjoyable.</span></div>
+
+					<a  href="/services/dental-care" target="_self" class="ms-layer  msp-cn-1-79 ms-btn ms-btn-box ms-btn-n msp-preset-btn-159" data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="937" data-delay="3987" data-ease="easeOutQuint"      data-fixed="true"  data-type="button" data-resize="false"       data-offset-x="187" data-offset-y="230" data-origin="tl"  >
+LEARN MORE</a>
+
+
+				</div>
+				<div  class="ms-slide" data-delay="15" data-fill-mode="fill"  >
+					<img src="http://www.gvhc.org/wp-content/plugins/masterslider/public/assets/js/blank.gif" alt="" title="" data-src="http://www.gvhc.org/wp-content/uploads/2014/06/healthy-families-1170x450.jpg" />
+
+					<div  class="ms-layer" style=""    data-delay="700" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="83" data-offset-y="111" data-origin="tl" >
+<span style="text-transform: uppercase; color: white; font-size: 24px; font-weight: normal; line-height: 33px; background: #6E922C; display: block; padding: 1px 10px;">Your first choice</span></div>
+
+					<div  class="ms-layer" style=""  data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="1162" data-delay="1287" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="118" data-offset-y="148" data-origin="tl" >
+<span style="text-transform: uppercase; color: white; font-size: 36px; font-weight: bold; text-shadow: 1px 1px #292929; line-height: 44px;">for emotional well-being</span></div>
+
+					<div  class="ms-layer" style=""  data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="912" data-delay="3150" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="120" data-offset-y="190" data-origin="tl" >
+<span style="color: white; font-size: 18px; text-shadow: 1px 1px #292929;">We can help you deal with the stresses of life. </span></div>
+
+					<a  href="/services/behavioral-health" target="_self" class="ms-layer  msp-cn-1-84 ms-btn ms-btn-box ms-btn-n msp-preset-btn-159" data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="937" data-delay="3987" data-ease="easeOutQuint"      data-fixed="true"  data-type="button" data-resize="false"       data-offset-x="187" data-offset-y="230" data-origin="tl"  >
+LEARN MORE</a>
+
+
+				</div>
+				<div  class="ms-slide" data-delay="15" data-fill-mode="fill"  >
+					<img src="http://www.gvhc.org/wp-content/plugins/masterslider/public/assets/js/blank.gif" alt="" title="" data-src="http://www.gvhc.org/wp-content/uploads/2014/06/gvhc-sign-1170x450.jpg" />
+
+					<div  class="ms-layer" style=""    data-delay="700" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="83" data-offset-y="111" data-origin="tl" >
+<span style="text-transform: uppercase; color: white; font-size: 24px; font-weight: normal; line-height: 33px; background: #6E922C; display: block; padding: 1px 10px;">Your first choice</span></div>
+
+					<div  class="ms-layer" style=""  data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="1162" data-delay="1287" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="118" data-offset-y="148" data-origin="tl" >
+<span style="text-transform: uppercase; color: white; font-size: 36px; font-weight: bold; text-shadow: 1px 1px #292929; line-height: 44px;">in your neighborhood</span></div>
+
+					<div  class="ms-layer" style=""  data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="912" data-delay="3150" data-ease="easeOutQuint"      data-fixed="true"          data-offset-x="120" data-offset-y="190" data-origin="tl" >
+<span style="color: white; font-size: 18px; text-shadow: 1px 1px #292929;">You can visit a center close to work or home</span></div>
+
+					<a  href="/services" target="_self" class="ms-layer  msp-cn-1-19 ms-btn ms-btn-box ms-btn-n msp-preset-btn-159" data-effect="t(true,500,n,n,n,n,n,n,n,n,n,n,n,n,n)" data-duration="937" data-delay="3987" data-ease="easeOutQuint"      data-fixed="true"  data-type="button" data-resize="false"       data-offset-x="187" data-offset-y="230" data-origin="tl"  >
+LEARN MORE</a>
+
+
+				</div>
+
+			</div>
+			<!-- END MasterSlider Main -->
+
+			 
+		</div>
+		<!-- END MasterSlider --> 
+		
+		<script>
+		(function ( $ ) {
+			"use strict";
+
+			$(function () {
+				var masterslider_bcd2 = new MasterSlider();
+
+				// slider controls
+				masterslider_bcd2.control('arrows'     ,{ autohide:true, overVideo:true  });                    
+				masterslider_bcd2.control('bullets'    ,{ autohide:true, overVideo:true, dir:'h', align:'bottom', space:5 , margin:10  });
+				// slider setup
+				masterslider_bcd2.setup("MS569eafec8bcd2", {
+						width           : 1170,
+						height          : 450,
+						space           : 0,
+						start           : 1,
+						grabCursor      : true,
+						swipe           : true,
+						mouse           : true,
+						layout          : "boxed", 
+						wheel           : false,
+						autoplay        : true,
+						instantStartLayers:true,
+						loop            : true,
+						shuffle         : false,
+						preload         : 2,
+						heightLimit     : true,
+						autoHeight      : false,
+						smoothHeight    : true,
+						endPause        : false,
+						overPause       : true,
+						fillMode        : "fill", 
+						centerControls  : false,
+						layersMode      : "center", 
+						hideLayers      : false, 
+						fullscreenMargin: 0,
+						speed           : 60, 
+						dir             : "h", 
+						parallaxMode    : 'swipe',
+						view            : "fade"
+				});
+				
+
+				
+				window.masterslider_instances = window.masterslider_instances || {};
+				window.masterslider_instances["1_bcd2"] = masterslider_bcd2;
+			 });
+			
+		})(jQuery);
+		</script> 
+		
+			</div>
+	</div>
+</div>
+
+	<div class="page-content-wrapper">
+			<div class="page-internal-content-wrapper">
+				<div class="row">
+																			<div class="col-md-9">
+							<div class="spacer"></div>
+							<h2><span style="color: #188718">Our Commitment to Care for You.</span></h2>
+<p>Our doctors, dentists, and skilled medical professionals are dedicated to providing exceptional health care to all we serve. And it’s our promise to care for everyone regardless of your culture, the language you speak, or your ability to pay.</p>
+<p>Learn more about Golden Valley Health Centers and our remarkable team. We look forward to seeing you.</p>
+							</div>
+							
+																<div class="col-md-3">
+									<div class="neighborhood">
+										<div class="neighborhood-heading">
+											<img src="http://www.gvhc.org/wp-content/themes/gvhc/images/neighbor.png" class="img-responsive" alt="Golden Valley Health Centers">
+										</div>
+										<div class="neighborhood-content">
+																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																								
+													<form action="/search-location/?sel=true" method="post">
+													<div class="form-group">
+														<select name="officeLocation" class="form-control">
+														<option>Please select a City:</option>
+																										<option value="Ceres ">Ceres </option>
+																										<option value="Dos Palos">Dos Palos</option>
+																										<option value="Le Grand">Le Grand</option>
+																										<option value="Los Banos">Los Banos</option>
+																										<option value="Merced">Merced</option>
+																										<option value="Modesto">Modesto</option>
+																										<option value="Newman">Newman</option>
+																										<option value="Patterson">Patterson</option>
+																										<option value="Planada">Planada</option>
+																										<option value="Riverbank">Riverbank</option>
+																										<option value="Turlock">Turlock</option>
+																										<option value="Westley ">Westley </option>
+																										</select>
+														<button type="submit" id="submit">Find a Location</button>
+													</div>
+													</form>
+										</div>
+										<!--
+											<div class="neighborhood-content">
+												<form action="/locations/?local=true" method="post">
+													<label for="address">Address</label>
+													<input id="address" name="address" type="text" placeholder="Address">
+													<label for="address2">City, State, Zip</label>
+													<input id="address2" name="address2" type="text" placeholder="City, State Zip">
+													<button type="submit" id="submit">Find a Location</button>
+												</form>
+											</div>
+										-->
+									</div>
+															</div>
+										</div>
+			</div>
+							<div class="home-content-wrapper">
+					<div class="row">
+											</div>
+				</div>
+										<div class="row three-menu center">
+																<div class="col-md-4">							<div class="post-thum">
+								<img src="http://www.gvhc.org/wp-content/uploads/2014/06/doctor.png" class="attachment-thumbnail wp-post-image" alt="doctor" />							</div>
+							<div class="post-cont">
+								<h3>Meet Our Doctors</h3>
+								<p><p>With compassion, training, and skill our Board-Certified physicians to provide excellent care.</p>
+<p><a title="Meet Our Staff" href="http://www.gvhc.org/meet-our-staff">LEARN MORE&gt;&gt;</a></p>
+</p>
+							</div>
+						</div>
+																							<div class="col-md-4 even">
+														<div class="post-thum">
+								<img src="http://www.gvhc.org/wp-content/uploads/2014/07/programs.png" class="attachment-thumbnail wp-post-image" alt="programs" />							</div>
+							<div class="post-cont">
+								<h3>Healthcare for Your Family</h3>
+								<p><p>Men, women, and children benefit from a wide range of services.</p>
+<p><a title="Services" href="/services">LEARN MORE&gt;&gt;</a></p>
+</p>
+							</div>
+						</div>
+																							<div class="col-md-4">							<div class="post-thum">
+								<img src="http://www.gvhc.org/wp-content/uploads/2014/07/join.png" class="attachment-thumbnail wp-post-image" alt="join" />							</div>
+							<div class="post-cont">
+								<h3>Join Our Team</h3>
+								<p><p>We’re going places and you can be a part of the excitement.</p>
+<p><a title="Careers at Golden Valley" href="/careers">LEARN MORE&gt;&gt;</a></p>
+</p>
+							</div>
+						</div>
+															</div>
+										<div class="row">
+											<div class="col-md-12">
+														<h3>About Golden Valley Health Center</h3>
+							<p><div class="row">
+<div class="col-xs-12 col-md-8">
+<p><strong>Golden Valley Health Centers [GVHC]</strong></p>
+<p>We challenge ourselves everyday to be the premiere healthcare organization in the nation by developing exceptional teams and providing exceptional experiences to every person we serve. We’re a community-based healthcare organization offering medical care, dental care, behavioral health counseling, health education, and more. GVHC is a Joint Commission-Accredited, private, nonprofit Federally Qualified Health Center serving Merced and Stanislaus Counties in California.</p></div>
+<div class="col-xs-12 col-md-4">
+<div class="col-xs-12 col-md-5"><img class="img-responsive" src="/wp-content/themes/gvhc/images/nqa.png" alt="NQA logo" /></div>
+<div class="col-xs-12 col-md-7"><img class="img-responsive" src="/wp-content/themes/gvhc/images/nqca.png" alt="NQCA logo" /></div>
+<div class="clearfix"></div>
+</div>
+</div>
+<div class="clearfix"></div>
+</p>
+						</div>
+									</div>
+				</div>
+
+
+	<div class="footer-wrapper">
+			<div class="row">
+				<div class="footer-nav center" role="navigation">
+					<nav class="menu-footer-menu-container"><ul id="menu-footer-menu" class="menu"><li class="menufication-search-holder"><form role="search" method="get" id="searchform" action="http://www.gvhc.org/">
+    <div>
+    	<label for="s" class="hidden">Search</label>
+        <input type="text" value="" name="s" id="s" placeholder="Search" />
+        <button class="btn btn-gvhc" id="searchsubmit" type="submit">
+			<span class="glyphicon glyphicon-search"></span><span class="hidden">Search</span>
+		</button>
+    </div>
+</form></li><li id="menu-item-74" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-74"><a href="http://www.gvhc.org/about/">About</a></li>
+<li id="menu-item-73" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-73"><a href="http://www.gvhc.org/services/">Services</a></li>
+<li id="menu-item-71" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-71"><a href="http://www.gvhc.org/giving-opportunities/">Giving Opportunities</a></li>
+<li id="menu-item-72" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-72"><a href="http://www.gvhc.org/contact-us/">Contact Us</a></li>
+<li id="menu-item-70" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-70"><a href="http://www.gvhc.org/locations/">Locations</a></li>
+</ul></nav>				</div>
+			</div>
+		</div>
+		<div class="row post-footer">
+			
+				<div class="col-md-9" role="navigation">
+					<nav class="menu-post-footer-menu-container"><ul id="menu-post-footer-menu" class="menu"><li class="menufication-search-holder"><form role="search" method="get" id="searchform" action="http://www.gvhc.org/">
+    <div>
+    	<label for="s" class="hidden">Search</label>
+        <input type="text" value="" name="s" id="s" placeholder="Search" />
+        <button class="btn btn-gvhc" id="searchsubmit" type="submit">
+			<span class="glyphicon glyphicon-search"></span><span class="hidden">Search</span>
+		</button>
+    </div>
+</form></li><li id="menu-item-52" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-52"><a href="http://www.gvhc.org/hipaa/">HIPAA</a></li>
+<li id="menu-item-53" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-53"><a href="http://www.gvhc.org/payment/">Payment</a></li>
+<li id="menu-item-54" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-54"><a href="http://www.gvhc.org/gvhc-nutrition-news/">GVHC Nutrition News</a></li>
+<li id="menu-item-55" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-55"><a href="http://www.gvhc.org/employee-login/">Employee Login</a></li>
+<li id="menu-item-56" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-56"><a href="http://www.gvhc.org/links/">Links</a></li>
+<li id="menu-item-57" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-57"><a href="http://www.gvhc.org/accreditations/">Accreditations</a></li>
+</ul></nav>					&copy; 2015 Golden Valley Health Centers
+				</div>
+				<div class="col-md-3 right" role="navigation">
+					<img src="http://www.gvhc.org/wp-content/themes/gvhc/images/stay_con.png" alt="Stay Connected" class="stayconnected">
+					<nav class="menu-social-menu-container"><ul id="menu-social-menu" class="social-menu"><li class="menufication-search-holder"><form role="search" method="get" id="searchform" action="http://www.gvhc.org/">
+    <div>
+    	<label for="s" class="hidden">Search</label>
+        <input type="text" value="" name="s" id="s" placeholder="Search" />
+        <button class="btn btn-gvhc" id="searchsubmit" type="submit">
+			<span class="glyphicon glyphicon-search"></span><span class="hidden">Search</span>
+		</button>
+    </div>
+</form></li><li id="menu-item-48" class="facebook-icon social-icon menu-item menu-item-type-custom menu-item-object-custom menu-item-48"><a target="_blank" href="http://www.facebook.com/goldenvalleyhealthcenters">Facebook</a></li>
+<li id="menu-item-49" class="social-icon twitter-icon menu-item menu-item-type-custom menu-item-object-custom menu-item-49"><a target="_blank" href="https://twitter.com/GVHC_health">Twitter</a></li>
+<li id="menu-item-50" class="social-icon youtube-icon menu-item menu-item-type-custom menu-item-object-custom menu-item-50"><a target="_blank" href="http://www.youtube.com/gvhcmedia">YouTube</a></li>
+<li id="menu-item-51" class="social-icon linkedin-icon menu-item menu-item-type-custom menu-item-object-custom menu-item-51"><a href="http://www.linkedin.com/company/golden-valley-health-centers">LinkedIN</a></li>
+</ul></nav>				</div>
+			</div>
+		
+		
+	</div>
+	<script type='text/javascript' src='http://www.gvhc.org/wp-includes/js/admin-bar.min.js?ver=4.1.9'></script>
+<script type='text/javascript' src='http://www.gvhc.org/wp-content/plugins/contact-form-7/includes/js/jquery.form.min.js?ver=3.51.0-2014.06.20'></script>
+<script type='text/javascript'>
+/* <![CDATA[ */
+var _wpcf7 = {"loaderUrl":"http:\/\/www.gvhc.org\/wp-content\/plugins\/contact-form-7\/images\/ajax-loader.gif","sending":"Sending ..."};
+/* ]]> */
+</script>
+<script type='text/javascript' src='http://www.gvhc.org/wp-content/plugins/contact-form-7/includes/js/scripts.js?ver=4.0.3'></script>
+<script type='text/javascript' src='http://www.gvhc.org/wp-content/plugins/masterslider/public/assets/js/jquery.easing.min.js?ver=2.9.2'></script>
+<script type='text/javascript' src='http://www.gvhc.org/wp-content/plugins/masterslider/public/assets/js/masterslider.min.js?ver=2.9.2'></script>
+		<div id="wpadminbar" class="nojq nojs" role="navigation">
+			<a class="screen-reader-shortcut" href="#wp-toolbar" tabindex="1">Skip to toolbar</a>
+			<div class="quicklinks" id="wp-toolbar" role="navigation" aria-label="Top navigation toolbar." tabindex="0">
+				<ul id="wp-admin-bar-root-default" class="ab-top-menu">
+		<li id="wp-admin-bar-wp-logo" class="menupop"><a class="ab-item"  aria-haspopup="true" href="http://www.gvhc.org/wp-admin/about.php" title="About WordPress"><span class="ab-icon"></span></a><div class="ab-sub-wrapper"><ul id="wp-admin-bar-wp-logo-default" class="ab-submenu">
+		<li id="wp-admin-bar-about"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/about.php">About WordPress</a>		</li></ul><ul id="wp-admin-bar-wp-logo-external" class="ab-sub-secondary ab-submenu">
+		<li id="wp-admin-bar-wporg"><a class="ab-item"  href="https://wordpress.org/">WordPress.org</a>		</li>
+		<li id="wp-admin-bar-documentation"><a class="ab-item"  href="http://codex.wordpress.org/">Documentation</a>		</li>
+		<li id="wp-admin-bar-support-forums"><a class="ab-item"  href="https://wordpress.org/support/">Support Forums</a>		</li>
+		<li id="wp-admin-bar-feedback"><a class="ab-item"  href="https://wordpress.org/support/forum/requests-and-feedback">Feedback</a>		</li></ul></div>		</li>
+		<li id="wp-admin-bar-my-sites" class="menupop"><a class="ab-item"  aria-haspopup="true" href="http://www.gvhc.org/wp-admin/my-sites.php">My Sites</a><div class="ab-sub-wrapper"><ul id="wp-admin-bar-my-sites-list" class="ab-submenu">
+		<li id="wp-admin-bar-blog-1" class="menupop"><a class="ab-item"  aria-haspopup="true" href="http://www.gvhc.org/wp-admin/"><div class="blavatar"></div>Golden Valley Health Centers</a><div class="ab-sub-wrapper"><ul id="wp-admin-bar-blog-1-default" class="ab-submenu">
+		<li id="wp-admin-bar-blog-1-d"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/">Dashboard</a>		</li>
+		<li id="wp-admin-bar-blog-1-n"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post-new.php">New Post</a>		</li>
+		<li id="wp-admin-bar-blog-1-c"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/edit-comments.php">Manage Comments</a>		</li>
+		<li id="wp-admin-bar-blog-1-v"><a class="ab-item"  href="http://www.gvhc.org/">Visit Site</a>		</li></ul></div>		</li>
+		<li id="wp-admin-bar-blog-2" class="menupop"><a class="ab-item"  aria-haspopup="true" href="http://www.gvhc.org/sp/wp-admin/"><div class="blavatar"></div>Espanol - Golden Valley Health Centers</a><div class="ab-sub-wrapper"><ul id="wp-admin-bar-blog-2-default" class="ab-submenu">
+		<li id="wp-admin-bar-blog-2-d"><a class="ab-item"  href="http://www.gvhc.org/sp/wp-admin/">Dashboard</a>		</li>
+		<li id="wp-admin-bar-blog-2-n"><a class="ab-item"  href="http://www.gvhc.org/sp/wp-admin/post-new.php">New Post</a>		</li>
+		<li id="wp-admin-bar-blog-2-c"><a class="ab-item"  href="http://www.gvhc.org/sp/wp-admin/edit-comments.php">Manage Comments</a>		</li>
+		<li id="wp-admin-bar-blog-2-v"><a class="ab-item"  href="http://www.gvhc.org/sp/">Visit Site</a>		</li></ul></div>		</li></ul></div>		</li>
+		<li id="wp-admin-bar-site-name" class="menupop"><a class="ab-item"  aria-haspopup="true" href="http://www.gvhc.org/wp-admin/">Golden Valley Health Centers</a><div class="ab-sub-wrapper"><ul id="wp-admin-bar-site-name-default" class="ab-submenu">
+		<li id="wp-admin-bar-dashboard"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/">Dashboard</a>		</li></ul></div>		</li>
+		<li id="wp-admin-bar-comments"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/edit-comments.php" title="0 comments awaiting moderation"><span class="ab-icon"></span><span id="ab-awaiting-mod" class="ab-label awaiting-mod pending-count count-0">0</span></a>		</li>
+		<li id="wp-admin-bar-new-content" class="menupop"><a class="ab-item"  aria-haspopup="true" href="http://www.gvhc.org/wp-admin/post-new.php" title="Add New"><span class="ab-icon"></span><span class="ab-label">New</span></a><div class="ab-sub-wrapper"><ul id="wp-admin-bar-new-content-default" class="ab-submenu">
+		<li id="wp-admin-bar-new-post"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post-new.php">Post</a>		</li>
+		<li id="wp-admin-bar-new-media"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/media-new.php">Media</a>		</li>
+		<li id="wp-admin-bar-new-page"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post-new.php?post_type=page">Page</a>		</li>
+		<li id="wp-admin-bar-new-cp_behavioralhealth"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post-new.php?post_type=cp_behavioralhealth">Member</a>		</li>
+		<li id="wp-admin-bar-new-cp_careers"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post-new.php?post_type=cp_careers">Career</a>		</li>
+		<li id="wp-admin-bar-new-cp_dentists"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post-new.php?post_type=cp_dentists">Dentist</a>		</li>
+		<li id="wp-admin-bar-new-cp_director"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post-new.php?post_type=cp_director">Member</a>		</li>
+		<li id="wp-admin-bar-new-cp_leadership"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post-new.php?post_type=cp_leadership">Leadership Member</a>		</li>
+		<li id="wp-admin-bar-new-cp_locations"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post-new.php?post_type=cp_locations">Location</a>		</li>
+		<li id="wp-admin-bar-new-cp_physicians"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post-new.php?post_type=cp_physicians">Physician</a>		</li>
+		<li id="wp-admin-bar-new-cp_theme_sections"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post-new.php?post_type=cp_theme_sections">Section</a>		</li>
+		<li id="wp-admin-bar-new-cp_homepage_sections"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post-new.php?post_type=cp_homepage_sections">Home Page Section</a>		</li></ul></div>		</li>
+		<li id="wp-admin-bar-edit"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/post.php?post=5&#038;action=edit">Edit Page</a>		</li></ul><ul id="wp-admin-bar-top-secondary" class="ab-top-secondary ab-top-menu">
+		<li id="wp-admin-bar-search" class="admin-bar-search"><div class="ab-item ab-empty-item" tabindex="-1"><form action="http://www.gvhc.org/" method="get" id="adminbarsearch"><input class="adminbar-input" name="s" id="adminbar-search" type="text" value="" maxlength="150" /><input type="submit" class="adminbar-button" value="Search"/></form></div>		</li>
+		<li id="wp-admin-bar-my-account" class="menupop with-avatar"><a class="ab-item"  aria-haspopup="true" href="http://www.gvhc.org/wp-admin/profile.php" title="My Account">Howdy, struong<img alt='' src='http://1.gravatar.com/avatar/37a5501895e26bd58c534dbd12af97cb?s=26&amp;d=http%3A%2F%2F1.gravatar.com%2Favatar%2Fad516503a11cd5ca435acc9bb6523536%3Fs%3D26&amp;r=G' class='avatar avatar-26 photo' height='26' width='26' /></a><div class="ab-sub-wrapper"><ul id="wp-admin-bar-user-actions" class="ab-submenu">
+		<li id="wp-admin-bar-user-info"><a class="ab-item" tabindex="-1" href="http://www.gvhc.org/wp-admin/profile.php"><img alt='' src='http://1.gravatar.com/avatar/37a5501895e26bd58c534dbd12af97cb?s=64&amp;d=http%3A%2F%2F1.gravatar.com%2Favatar%2Fad516503a11cd5ca435acc9bb6523536%3Fs%3D64&amp;r=G' class='avatar avatar-64 photo' height='64' width='64' /><span class='display-name'>struong</span></a>		</li>
+		<li id="wp-admin-bar-edit-profile"><a class="ab-item"  href="http://www.gvhc.org/wp-admin/profile.php">Edit My Profile</a>		</li>
+		<li id="wp-admin-bar-logout"><a class="ab-item"  href="http://www.gvhc.org/wp-login.php?action=logout&#038;_wpnonce=2ae70f45ed">Log Out</a>		</li></ul></div>		</li></ul>			</div>
+						<a class="screen-reader-shortcut" href="http://www.gvhc.org/wp-login.php?action=logout&#038;_wpnonce=2ae70f45ed">Log Out</a>
+					</div>
+
+			</div>
+	</body>
+</html>
